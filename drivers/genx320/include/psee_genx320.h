@@ -377,6 +377,66 @@ typedef struct
     STC_ParamsTypeDef   Params;     /*!< STC Params */
 } STC_HandleTypeDef;
 
+/**
+ * @brief Structure to hold ERC Invalidation
+ */
+typedef struct {
+    uint32_t dfifo_en;
+    uint32_t dfifo_sz;
+} ERC_DFIFOTypeDef;
+
+/**
+ * @brief ERC Init structures definition
+ */
+typedef enum {
+	ERC_INIT_NOT_DONE	= 0x00U,
+    ERC_INIT_DONE 		= 0x01U,
+} ERC_InitTypeDef;
+
+/**
+ * @brief ERC Status structures definition
+ */
+typedef enum {
+    ERC_OK        	            = 0x00U,
+    ERC_BUSY                    = 0x01U,
+	ERC_ERROR		            = 0x02U,
+	ERC_STATE_ERROR		        = 0x03U,
+    ERC_REFERENCE_PERIOD_ERROR  = 0x04U,
+    ERC_MAX_PERIOD_EVENTS_ERROR = 0x05U,
+} ERC_StatusTypeDef;
+
+/**
+ * @brief ERC State structures definition
+ */
+typedef enum {
+    ERC_STATE_RESET     = 0x00U,
+    ERC_STATE_READY	    = 0x01U,
+    ERC_STATE_BUSY      = 0x02U,
+} ERC_StateTypeDef;
+
+/**
+ * @brief ERC Mode structures definition
+ */
+typedef enum {
+    ERC_MODE_RESET 		    = 0x00U,
+    ERC_MODE_DROP 		    = 0x01U,
+    ERC_MODE_MONITOR 		= 0x02U,
+} ERC_ModeTypeDef;
+
+/**
+ * @brief ERC Handle Structure definition
+ */
+typedef struct
+{
+    omv_csi_t           *csi;
+    ERC_InitTypeDef     Init;              /*!< ERC block Init */
+    ERC_StateTypeDef    State;             /*!< ERC block State */
+    ERC_ModeTypeDef     Mode;              /*!< ERC Mode */
+    ERC_DFIFOTypeDef    delay_fifo_en;     /*!< ERC block delay fifo enable*/
+    uint16_t            reference_period;  /*!< ERC event period */
+    uint16_t            max_period_events; /*!< ERC max events per period */
+} ERC_HandleTypeDef;
+
 /* Constants/Variables to hold default bias */
 extern const BIAS_Params_t genx320es_default_biases;
 extern const BIAS_Params_t genx320mp_default_biases;
@@ -512,5 +572,16 @@ extern STC_ModeTypeDef psee_stc_get_mode(STC_HandleTypeDef *stc);
 extern uint16_t psee_stc_get_params_mult(STC_HandleTypeDef *stc);
 extern uint16_t psee_stc_get_params_presc(STC_HandleTypeDef *stc);
 extern uint16_t psee_stc_get_params_timeout(STC_HandleTypeDef *stc);
+
+/* ERC Configuration Functions */
+extern ERC_StatusTypeDef psee_erc_init(omv_csi_t *csi, ERC_HandleTypeDef *erc);
+extern ERC_StatusTypeDef psee_erc_activate(ERC_HandleTypeDef *erc,
+                                           uint16_t reference_period,
+                                           uint16_t max_period_events);
+extern ERC_StatusTypeDef psee_erc_monitor_only_activate(ERC_HandleTypeDef *erc);
+extern ERC_StatusTypeDef psee_erc_deactivate(ERC_HandleTypeDef *erc);
+extern uint16_t psee_erc_get_reference_period(ERC_HandleTypeDef *erc);
+extern uint16_t psee_get_max_period_events(ERC_HandleTypeDef *erc);
+extern ERC_StateTypeDef psee_erc_get_state(ERC_HandleTypeDef *erc);
 
 #endif

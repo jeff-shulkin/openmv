@@ -1565,6 +1565,7 @@ static void psee_sram_powerup(omv_csi_t *csi, GenX320_ModulesTypeDef module) {
 
     uint32_t sram_initn = 0;
     uint32_t sram_pd0 = 0;
+    uint32_t sram_pd1 = 0;
     switch (module) {
 
     case EHC:
@@ -1607,6 +1608,48 @@ static void psee_sram_powerup(omv_csi_t *csi, GenX320_ModulesTypeDef module) {
         );
         break;
 
+    case ERC:
+        psee_sram_powerup(csi, ERC_DFIFO);
+        psee_sram_powerup(csi, ERC_ILG);
+        psee_sram_powerup(csi, ERC_TDROP);
+        break;
+
+    case ERC_DFIFO:
+        psee_sensor_read(csi, SRAM_INITN, &sram_initn);
+        psee_sensor_write(csi, SRAM_INITN, sram_initn |           /*!< Previous State of SRAM_INITN */
+                                          (0x1UL << SRAM_INITN_ERC_DL_Pos) /*!< Initialize the memory state machine: ERC's SRAM control init_n */
+        );
+
+        psee_sensor_read(csi, SRAM_PD1, &sram_pd1);
+        psee_sensor_write(csi, SRAM_PD1, sram_pd1 &
+                                        ~SRAM_PD1_ERC_DL_PD
+        );
+        break;
+
+    case ERC_ILG:
+        psee_sensor_read(csi, SRAM_INITN, &sram_initn);
+        psee_sensor_write(csi, SRAM_INITN, sram_initn |
+                                          (0x1UL << SRAM_INITN_ERC_ILG_Pos)
+        );
+
+        psee_sensor_read(csi, SRAM_PD1, &sram_pd1);
+        psee_sensor_write(csi, SRAM_PD1, sram_pd1 &
+                                        ~SRAM_PD1_ERC_ILG_PD
+        );
+        break;
+
+    case ERC_TDROP:
+        psee_sensor_read(csi, SRAM_INITN, &sram_initn);
+        psee_sensor_write(csi, SRAM_INITN, sram_initn |
+                                          (0x1UL << SRAM_INITN_ERC_TDROP_Pos)
+        );
+
+        psee_sensor_read(csi, SRAM_PD1, &sram_pd1);
+        psee_sensor_write(csi, SRAM_PD1, sram_pd1 &
+                                        ~SRAM_PD1_ERC_TDROP_PD
+        );
+        break;
+
     default:
         break;
     }
@@ -1619,6 +1662,7 @@ static void psee_sram_powerup(omv_csi_t *csi, GenX320_ModulesTypeDef module) {
 static void psee_sram_powerdown(omv_csi_t *csi, GenX320_ModulesTypeDef module) {
 
     uint32_t sram_pd0 = 0;
+    uint32_t sram_pd1 = 0;
     switch (module) {
 
     case EHC:
@@ -1643,6 +1687,33 @@ static void psee_sram_powerdown(omv_csi_t *csi, GenX320_ModulesTypeDef module) {
         psee_sensor_read(csi, SRAM_PD0, &sram_pd0);
         psee_sensor_write(csi, SRAM_PD0, sram_pd0 |           /*!< Previous State of SRAM_PD0 */
                                         SRAM_PD0_STC0_PD /*!< SRAM's Power Down Register : 1 - STC's SRAM cuts in powerdown */
+        );
+        break;
+
+    case ERC:
+        psee_sram_powerdown(csi, ERC_DFIFO);
+        psee_sram_powerdown(csi, ERC_ILG);
+        psee_sram_powerdown(csi, ERC_TDROP);
+        break;
+
+    case ERC_DFIFO:
+        psee_sensor_read(csi, SRAM_PD1, &sram_pd1);
+        psee_sensor_write(csi, SRAM_PD1, sram_pd1 |
+                                        SRAM_PD1_ERC_DL_PD
+        );
+        break;
+
+    case ERC_ILG:
+        psee_sensor_read(csi, SRAM_PD1, &sram_pd1);
+        psee_sensor_write(csi, SRAM_PD1, sram_pd1 |
+                                        SRAM_PD1_ERC_ILG_PD
+        );
+        break;
+
+    case ERC_TDROP:
+        psee_sensor_read(csi, SRAM_PD1, &sram_pd1);
+        psee_sensor_write(csi, SRAM_PD1, sram_pd1 |
+                                        SRAM_PD1_ERC_TDROP_PD
         );
         break;
 
@@ -3371,6 +3442,398 @@ uint16_t psee_stc_get_params_timeout(STC_HandleTypeDef *stc) {
 
     /* Return STC handle timeout parameter */
     return stc->Params.Timeout;
+}
+
+/**
+ * @}
+ */
+
+ /** @defgroup GenX320 - ERC Configuration Functions
+ *  @brief    ERC Configuration Functions
+ *
+@verbatim
+ ===============================================================================
+                      ##### ERC Configuration Functions #####
+ ===============================================================================
+    [..]  This section provides functions allowing to:
+      (+) Initialize ERC Handle
+      (+) Enable Event drop mode
+      (+) Enable Monitor only mode
+      (+) Disable STC Block
+      (+) Get ERC state
+      (+) Get ERC mode
+      (+) Get ERC parameters
+
+
+@endverbatim
+  * @{
+  */
+
+/**
+ * @brief  Compute the ERC target event count register value
+ * @param event_count Event count per event period from 1 to 1023
+ * @retval Event count value
+ */
+static uint16_t psee_erc_event_count_to_target_event_count_val(uint16_t event_count) {
+    return (event_count * 50 * 32);
+}
+
+/**
+ * @brief  Initializes the ERC Handle
+ * @param  erc Pointer to a ERC_HandleTypeDef structure
+ * @retval ERC status
+ */
+ERC_StatusTypeDef psee_erc_init(omv_csi_t *csi, ERC_HandleTypeDef *erc) {
+
+    /* Check the STC handle allocation */
+    if (erc == NULL) {
+        return ERC_ERROR;
+    }
+
+    /* Reset the block */
+    erc->csi = csi;
+    erc->Mode = ERC_MODE_RESET;
+    erc->State = ERC_STATE_RESET;
+    erc->reference_period = 200;
+    erc->max_period_events = 0;
+
+    /* Initialize the block */
+    erc->Init = ERC_INIT_DONE;
+
+    return ERC_OK;
+}
+
+/**
+ * @brief  Function to enable and configure the Event Rate Controller (ERC)
+ * @param  erc Pointer to the STC handle
+ * @param  reference_period ERC event period in us
+ * @param  max_period_events max number of events per period
+ * @retval ERC status
+ */
+ERC_StatusTypeDef psee_erc_activate(ERC_HandleTypeDef *erc, uint16_t reference_period, uint16_t max_period_events) {
+
+    /* Check the ERC handle allocation */
+    if (erc == NULL) {
+        return ERC_ERROR;
+    }
+
+    /* Assert Input max events */
+    if ((max_period_events < 1) || (max_period_events > 1023)) {
+        return ERC_MAX_PERIOD_EVENTS_ERROR;
+    }
+
+    /* Assert Input reference period */
+    if ((reference_period < 1) || (reference_period > 1023)) {
+        return ERC_REFERENCE_PERIOD_ERROR;
+    }
+
+    /* Assert Block Init */
+    if (erc->Init != ERC_INIT_DONE) {
+        return ERC_STATE_ERROR;
+    }
+
+    /* Assert State */
+    if (erc->State != ERC_STATE_BUSY) {
+
+        /* Update the state */
+        erc->State = ERC_STATE_BUSY;
+
+        /* Update Params */
+        erc->reference_period = reference_period;
+        erc->max_period_events = max_period_events;
+
+        /* Calculate event target value based on desired number of events per period */
+        uint16_t target_event_count_val = psee_erc_event_count_to_target_event_count_val(erc->max_period_events);
+
+        /* ERC Dropping Arguments */
+        uint32_t erc_avg_dropping_rate = 1;
+        uint32_t erc_all_drop = 512;
+        uint32_t erc_h_en = 0;
+        uint32_t erc_v_en = 0;
+        uint32_t erc_t_en = 1;
+        uint32_t erc_t_lut_en = 0;
+        uint32_t erc_adr_delayed = 1;
+        uint32_t erc_use_intlvl_grid = 0;
+        
+        /* Bypass the block in order to configure AFK parameters */
+        psee_sensor_write(erc->csi, ERC_PIPELINE_CONTROL, ERC_PIPELINE_CONTROL_BYPASS); /*!< Bypass the block */
+
+        /* SRAM Powerup */
+        psee_sram_powerup(erc->csi, ERC);
+                
+        /* Force delay DRAM to be unused */
+        psee_sensor_write(erc->csi, ERC_DELAY_FIFO_FLUSH_AND_BYPASS,
+                                            (erc_adr_delayed << ERC_DELAY_FIFO_FLUSH_AND_BYPASS_EN_Pos)
+        );
+ 
+        /* Configure ERC reference period and enable delay FIFO */
+        psee_sensor_write(erc->csi, ERC_REF_PERIOD_FLAVOR,
+                                            (erc->reference_period << ERC_REF_PERIOD_FLAVOR_REFERENCE_Pos) |            /*!< Set new event reference period */
+                                            (erc_avg_dropping_rate << ERC_REF_PERIOD_FLAVOR_AVG_DROP_RATE_DELAYED_Pos) /*!< Enable Delay FIFO */
+        );
+
+        /* Set the max number of events per period */
+        psee_sensor_write(erc->csi, ERC_TD_TARGET_EVENT_COUNT,
+                                            (target_event_count_val << ERC_TD_TARGET_EVENT_COUNT_VAL_Pos)
+        );
+
+        /* Configure ERC dropping control parameters */
+        psee_sensor_write(erc->csi, ERC_AHVT_DROPPING_CONTROL,
+                                            (erc_h_en << ERC_AHVT_DROPPING_CONTROL_H_EN_Pos) |                   /*!< Enable horizontal event dropping */
+                                            (erc_v_en << ERC_AHVT_DROPPING_CONTROL_V_EN_Pos) |                   /*!< Enable vertical event dropping */
+                                            (erc_t_en << ERC_AHVT_DROPPING_CONTROL_T_EN_Pos) |                   /*!< Enable temporal event dropping */
+                                            (erc_t_lut_en << ERC_AHVT_DROPPING_CONTROL_T_LUT_EN_Pos) |           /*!< Set tdrop rate to event drop rate value Dij */
+                                            (erc_all_drop << ERC_AHVT_DROPPING_CONTROL_DROP_ALL_TD_WHEN_GEQ_Pos) /*!< Enable AFK Dropping */
+        );
+
+        /* Disable use of interest level grids */
+        psee_sensor_write(erc->csi, ERC_INTEREST_LEVEL,
+                                            (erc_use_intlvl_grid << ERC_INTEREST_LEVEL_USE_INTLVL_GRID_Pos)
+        );
+
+        /* Enable the ERC Block */
+        psee_sensor_write(erc->csi, ERC_PIPELINE_CONTROL, ERC_PIPELINE_CONTROL_ENABLE |              /*!< Enable the block */
+                                            (0x0UL << ERC_PIPELINE_CONTROL_DROP_NBACKPRESSURE_Pos) | /*!< Propagate Back pressure */
+                                            (0x0UL << ERC_PIPELINE_CONTROL_BYPASS_Pos)               /*!< Disable Bypass */
+        );
+
+        /* Update the state */
+        erc->State = ERC_STATE_READY;
+
+    } else {
+        return ERC_BUSY;
+    }
+
+    return ERC_OK;
+}
+
+/**
+ * @brief  Function to enable and configure the Event Rate Controller (ERC)
+ * @param  erc Pointer to the STC handle
+ * @param  reference_period ERC event period in us
+ * @param  max_period_events max number of events per period
+ * @retval ERC status
+ */
+ERC_StatusTypeDef psee_erc_monitor_only_activate(ERC_HandleTypeDef *erc) {
+
+    /* Check the ERC handle allocation */
+    if (erc == NULL) {
+        return ERC_ERROR;
+    }
+
+    /* Assert Block Init */
+    if (erc->Init != ERC_INIT_DONE) {
+        return ERC_STATE_ERROR;
+    }
+
+    /* Assert State */
+    if (erc->State != ERC_STATE_BUSY) {
+
+        /* Update the state */
+        erc->State = ERC_STATE_BUSY;
+
+        /* Update Params */
+        erc->reference_period = 100;
+        erc->max_period_events = 600;
+
+        /* Calculate event target value based on desired number of events per period */
+        uint16_t target_event_count_val = psee_erc_event_count_to_target_event_count_val(erc->max_period_events);
+
+        /* ERC Dropping Arguments */
+        uint32_t erc_avg_dropping_rate = 1;
+        uint32_t erc_all_drop = 513;
+        uint32_t erc_h_en = 0;
+        uint32_t erc_v_en = 0;
+        uint32_t erc_t_en = 0;
+        uint32_t erc_t_lut_en = 0;
+        uint32_t erc_adr_delayed = 1;
+        uint32_t erc_use_intlvl_grid = 0;
+
+        /* ERC Monitor Arguments */
+        uint32_t erc_monitor_first_module_tag_en = 1;
+        uint32_t erc_monitor_avg_drop_rate_en = 1;
+        uint32_t erc_monitor_in_td_cnt_en = 1;
+        uint32_t erc_monitor_df_td_vect_drop_cnt_en = 1;
+        uint32_t erc_monitor_df_non_td_vect_drop_cnt_en = 1;
+        uint32_t erc_monitor_alldr_evt_drop_cnt_en = 1;
+        uint32_t erc_monitor_hdr_evt_drop_cnt_en = 1;
+        uint32_t erc_monitor_vdr_evt_drop_cnt_en = 1;
+        uint32_t erc_monitor_tdr_evt_drop_cnt_en = 1;
+        uint32_t erc_monitor_erc_td_evt_cnt_en = 1;
+        uint32_t erc_monitor_last_module_tag_en = 1;
+
+        /* Bypass the block in order to configure AFK parameters */
+        psee_sensor_write(erc->csi, ERC_PIPELINE_CONTROL, ERC_PIPELINE_CONTROL_BYPASS); /*!< Bypass the block */
+
+        /* SRAM Powerup */
+        psee_sram_powerup(erc->csi, ERC);
+
+        /* Force delay DRAM to be unused */
+        psee_sensor_write(erc->csi, ERC_DELAY_FIFO_FLUSH_AND_BYPASS,
+                                            (erc_adr_delayed << ERC_DELAY_FIFO_FLUSH_AND_BYPASS_EN_Pos)
+        );
+
+        /* Configure ERC reference period and enable delay FIFO */
+        psee_sensor_write(erc->csi, ERC_REF_PERIOD_FLAVOR,
+                                            (erc->reference_period << ERC_REF_PERIOD_FLAVOR_REFERENCE_Pos) |            /*!< Set new event reference period */
+                                            (erc_avg_dropping_rate << ERC_REF_PERIOD_FLAVOR_AVG_DROP_RATE_DELAYED_Pos) /*!< Enable Delay FIFO */
+        );
+
+        /* Set the max number of events per period */
+        psee_sensor_write(erc->csi, ERC_TD_TARGET_EVENT_COUNT,
+                                            (target_event_count_val << ERC_TD_TARGET_EVENT_COUNT_VAL_Pos)
+        );
+
+        /* Check if ERC dropping control status is ready */
+        uint32_t flag_init_done = 0;
+        while (flag_init_done != 1) {
+            psee_sensor_read(erc->csi, ERC_AHVT_DROPPING_CONTROL, &flag_init_done);
+            flag_init_done = ((flag_init_done & (1 << ERC_AHVT_DROPPING_CONTROL_STATUS_Pos)) >> ERC_AHVT_DROPPING_CONTROL_STATUS_Pos);
+        }
+
+        /* Configure ERC dropping control parameters */
+        psee_sensor_write(erc->csi, ERC_AHVT_DROPPING_CONTROL,
+                                            (erc_h_en << ERC_AHVT_DROPPING_CONTROL_H_EN_Pos) |                   /*!< Enable horizontal event dropping */
+                                            (erc_v_en << ERC_AHVT_DROPPING_CONTROL_V_EN_Pos) |                   /*!< Enable vertical event dropping */
+                                            (erc_t_en << ERC_AHVT_DROPPING_CONTROL_T_EN_Pos) |                   /*!< Enable temporal event dropping */
+                                            (erc_t_lut_en << ERC_AHVT_DROPPING_CONTROL_T_LUT_EN_Pos) |           /*!< Set tdrop rate to event drop rate value Dij */
+                                            (erc_all_drop << ERC_AHVT_DROPPING_CONTROL_DROP_ALL_TD_WHEN_GEQ_Pos) /*!< Enable AFK Dropping */
+        );
+
+        /* Disable use of interest level grids */
+        psee_sensor_write(erc->csi, ERC_INTEREST_LEVEL,
+                                            (erc_use_intlvl_grid << ERC_INTEREST_LEVEL_USE_INTLVL_GRID_Pos)
+        );
+
+        /* Enable Event Monitoring Tags */
+        psee_sensor_write(erc->csi, ERC_MONITORING_EVENT_CONTROL,
+                                            (erc_monitor_first_module_tag_en << ERC_MONITORING_EVENT_CONTROL_FIRST_MODULE_TAG_EN_Pos) |
+                                            (erc_monitor_avg_drop_rate_en << ERC_MONITORING_EVENT_CONTROL_AVG_DROP_RATE_EN_Pos) |
+                                            (erc_monitor_in_td_cnt_en << ERC_MONITORING_EVENT_CONTROL_IN_TD_CNT_EN_Pos) |
+                                            (erc_monitor_df_td_vect_drop_cnt_en << ERC_MONITORING_EVENT_CONTROL_DF_TD_VECT_DROP_CNT_EN_Pos) |
+                                            (erc_monitor_df_non_td_vect_drop_cnt_en << ERC_MONITORING_EVENT_CONTROL_DF_NON_TD_VECT_DROP_CNT_EN_Pos) |
+                                            (erc_monitor_alldr_evt_drop_cnt_en << ERC_MONITORING_EVENT_CONTROL_ALLDR_EVT_DROP_CNT_EN_Pos) |
+                                            (erc_monitor_hdr_evt_drop_cnt_en << ERC_MONITORING_EVENT_CONTROL_HDR_EVT_DROP_CNT_EN_Pos) |
+                                            (erc_monitor_vdr_evt_drop_cnt_en << ERC_MONITORING_EVENT_CONTROL_VDR_EVT_DROP_CNT_EN_Pos) |
+                                            (erc_monitor_tdr_evt_drop_cnt_en << ERC_MONITORING_EVENT_CONTROL_TDR_EVT_DROP_CNT_EN_Pos) |
+                                            (erc_monitor_erc_td_evt_cnt_en << ERC_MONITORING_EVENT_CONTROL_TD_EVT_CNT_EN_Pos) |
+                                            (erc_monitor_last_module_tag_en << ERC_MONITORING_EVENT_CONTROL_LAST_MODULE_TAG_EN_Pos)
+        );
+
+
+        /* Enable the ERC Block */
+        psee_sensor_write(erc->csi, ERC_PIPELINE_CONTROL, ERC_PIPELINE_CONTROL_ENABLE |              /*!< Enable the block */
+                                            (0x0UL << ERC_PIPELINE_CONTROL_DROP_NBACKPRESSURE_Pos) | /*!< Propagate Back pressure */
+                                            (0x0UL << ERC_PIPELINE_CONTROL_BYPASS_Pos)               /*!< Disable Bypass */
+        );
+
+        /* Update the state */
+        erc->State = ERC_STATE_READY;
+
+    } else {
+        return ERC_BUSY;
+    }
+
+    return ERC_OK;
+}
+
+/**
+ * @brief  Function to deactivate ERC block.
+ * @param  erc Pointer to the ERC handle
+ */
+ERC_StatusTypeDef psee_erc_deactivate(ERC_HandleTypeDef *erc) {
+
+    /* Check the STC handle allocation */
+    if (erc == NULL) {
+        return ERC_ERROR;
+    }
+
+    /* Assert Block Init */
+    if (erc->Init != ERC_INIT_DONE) {
+        return ERC_STATE_ERROR;
+    }
+
+    /* Bypass the ERC */
+    psee_sensor_write(erc->csi, ERC_PIPELINE_CONTROL, (0x1UL << ERC_PIPELINE_CONTROL_ENABLE_Pos) |   /*!< Enable the block */
+                                                (0x1UL << ERC_PIPELINE_CONTROL_BYPASS_Pos)           /*!< Bypass the block */
+    );
+
+    /* SRAM Powerdown */
+    psee_sram_powerdown(erc->csi, ERC);
+
+    /* Update the state */
+    erc->Init = ERC_INIT_NOT_DONE;
+    erc->Mode = ERC_MODE_RESET;
+    erc->State = ERC_STATE_RESET;
+    erc->reference_period = 200;
+    erc->max_period_events = 0;
+
+    return ERC_OK;
+}
+
+
+/**
+ * @brief  Return the ERC handle state.
+ * @param  erc Pointer to a ERC_HandleTypeDef structure
+ * @retval ERC state
+ */
+ERC_StateTypeDef psee_erc_get_state(ERC_HandleTypeDef *erc) {
+
+    /* Assert Block Init */
+    if (erc->Init != ERC_INIT_DONE) {
+        return ERC_STATE_RESET;
+    }
+
+    /* Return ERC handle state */
+    return erc->State;
+}
+
+/**
+ * @brief  Return the ERC handle mode.
+ * @param  erc Pointer to a ERC_HandleTypeDef structure
+ * @retval ERC mode
+ */
+ERC_ModeTypeDef psee_erc_get_mode(ERC_HandleTypeDef *erc) {
+
+    /* Assert Block Init */
+    if (erc->Init != ERC_INIT_DONE) {
+        return ERC_MODE_RESET;
+    }
+
+    /* Return ERC handle mode */
+    return erc->Mode;
+}
+
+/**
+ * @brief  Return the ERC handle reference period parameter.
+ * @param  erc Pointer to a ERC_HandleTypeDef structure
+ * @retval ERC reference period parameter
+ */
+uint16_t psee_erc_get_reference_period(ERC_HandleTypeDef *erc) {
+
+    /* Assert Block Init */
+    if (erc->Init != ERC_INIT_DONE) {
+        return 0;
+    }
+
+    /* Return ERC handle reference period parameter */
+    return erc->reference_period;
+}
+
+/**
+ * @brief  Return the ERC handle max events per period parameter.
+ * @param  erc Pointer to a ERC_HandleTypeDef structure
+ * @retval STC max events per period parameter
+ */
+uint16_t psee_erc_get_max_period_events(ERC_HandleTypeDef *erc) {
+
+    /* Assert Block Init */
+    if (erc->Init != ERC_INIT_DONE) {
+        return 0;
+    }
+
+    /* Return ERC handle multiplier parameter */
+    return erc->max_period_events;
 }
 
 /**

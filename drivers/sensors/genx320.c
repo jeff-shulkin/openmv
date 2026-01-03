@@ -83,6 +83,7 @@ typedef struct genx_state {
     const struct issd *issd;
     genx_mode_t mode;
     AFK_HandleTypeDef psee_afk;
+    ERC_HandleTypeDef psee_erc;
     ec_event_t *events;
 } genx_state_t;
 
@@ -424,6 +425,52 @@ static int ioctl(omv_csi_t *csi, int request, va_list ap) {
             }
             break;
         }
+        // Controlling ERC filter with event dropping
+        case OMV_CSI_IOCTL_GENX320_SET_ERC_DROP: {
+            int mode = va_arg(ap, int);
+            
+            if (mode == 0) {
+                // Disable ERC
+                if (psee_erc_get_state(&genx->psee_erc) != ERC_STATE_RESET) {
+                    if (psee_erc_deactivate(&genx->psee_erc) != ERC_OK) {
+                        ret = -1;
+                    }
+                }
+            } else {
+                // Enable ERC - Dropping mode
+                int reference_period = va_arg(ap, int);
+                int max_period_events = va_arg(ap, int);
+                if (psee_erc_init(csi, &genx->psee_erc) != ERC_OK) {
+                    ret = -1;
+                }
+                if (psee_erc_activate(&genx->psee_erc, reference_period, max_period_events) != ERC_OK) {
+                    ret = -1;
+                }
+            }
+            break;
+        }
+        // Controlling ERC filter in monitor-only mode
+        case OMV_CSI_IOCTL_GENX320_SET_ERC_MONITOR: {
+            int mode = va_arg(ap, int);
+
+            if (mode == 0) {
+                // Disable ERC
+                if (psee_erc_get_state(&genx->psee_erc) != ERC_STATE_RESET) {
+                    if (psee_erc_deactivate(&genx->psee_erc) != ERC_OK) {
+                        ret = -1;
+                    }
+                }
+            } else {
+                // Enable ERC - Monitor only
+                if (psee_erc_init(csi, &genx->psee_erc) != ERC_OK) {
+                    ret = -1;
+                }
+                if (psee_erc_monitor_only_activate(&genx->psee_erc) != ERC_OK) {
+                    ret = -1;
+                }
+            }
+            break;
+        }
         case OMV_CSI_IOCTL_GENX320_SET_MODE: {
             int mode = va_arg(ap, int);
 
@@ -675,7 +722,7 @@ static int set_active_mode(omv_csi_t *csi, genx_mode_t mode, int framesize) {
                       RO_READOUT_CTRL_DROP_EN |
                       RO_READOUT_CTRL_DROP_ON_FULL_EN);
 
-    // Enable the Anti-FlicKering filter
+    // Enable the Anti-Flickering filter
     if (psee_afk_init(csi, &genx->psee_afk) != AFK_OK) {
         return -1;
     }
@@ -690,6 +737,13 @@ static int set_active_mode(omv_csi_t *csi, genx_mode_t mode, int framesize) {
     } else {
         // Operation Mode Configuration
         psee_PM3C_Histo_config(csi);
+    }
+
+    if (mode == OMV_CSI_GENX320_MODE_EVENT) {
+        // Enable Event-Rate Controller
+        if (psee_erc_init(csi, &genx->psee_erc) != ERC_OK) {
+            return -1;
+        }
     }
 
     // Set the default border for the Activity map
