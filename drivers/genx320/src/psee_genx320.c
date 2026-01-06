@@ -3376,3 +3376,269 @@ uint16_t psee_stc_get_params_timeout(STC_HandleTypeDef *stc) {
 /**
  * @}
  */
+
+ /** @defgroup GenX320 - NFL Configuration Functions
+ *  @brief    NFL Configuration Functions
+ *
+@verbatim
+ ===============================================================================
+                      ##### NFL Configuration Functions #####
+ ===============================================================================
+    [..]  This section provides functions allowing to:
+      (+) Initialize NFL Handle
+      (+) Enable NFL Block
+      (+) Disable NFL Block
+      (+) Get NFL state
+      (+) Get NFL parameters
+
+
+@endverbatim
+  * @{
+  */
+
+/**
+ * @brief  Initializes the NFL Handle
+ * @param  nfl Pointer to a NFL_HandleTypeDef structure
+ * @retval NFL status
+ */
+NFL_StatusTypeDef psee_nfl_init(omv_csi_t *csi, NFL_HandleTypeDef *nfl) {
+
+    /* Check the NFL handle allocation */
+    if (nfl == NULL) {
+        return NFL_ERROR;
+    }
+
+    /* Reset the block */
+    nfl->csi = csi;
+    nfl->State = NFL_STATE_RESET;
+    nfl->reference_period = 0;
+    nfl->min_px_evt_drop_on = 0;
+    nfl->min_px_evt_drop_off = 0;
+    nfl->max_px_evt_drop_on = 0;
+    nfl->max_px_evt_drop_off = 0;
+
+    /* Initialize the block */
+    nfl->Init = NFL_INIT_DONE;
+
+    return NFL_OK;
+}
+
+/**
+ * @brief  Function to enable and configure the Noise Filter (NFL)
+ * @param  nfl Pointer to the NFL handle
+ * @param  reference_period NFL pseudo-window size in us
+ * @param  min_px_evt_drop_on TODO
+ * @param  min_px_evt_drop_off TODO
+ * @param  max_px_evt_drop_on TODO
+ * @param  max_px_evt_drop_off TODO
+ */
+NFL_StatusTypeDef psee_nfl_activate(NFL_HandleTypeDef *nfl,
+                                    uint16_t reference_period,
+                                    uint32_t min_px_evt_drop_on,
+                                    uint32_t min_px_evt_drop_off,
+                                    uint32_t max_px_evt_drop_on,
+                                    uint32_t max_px_evt_drop_off) {
+
+    /* Check the NFL handle allocation */
+    if (nfl == NULL) {
+        return STC_ERROR;
+    }
+
+    /* Assert reference period Param */
+    if ((reference_period < 1) || (reference_period > 1024)) {
+        return NFL_REFERENCE_PERIOD_ERROR;
+    }
+
+    /* Assert min_px_evt off thresholds > on thresholds */
+    if (min_px_evt_drop_on > min_px_evt_drop_off) {
+        return NFL_DROP_THRESHOLD_ERROR;
+    }
+
+    /* Assert max_px_evt on thresholds > off thresholds */
+    if (max_px_evt_drop_on < max_px_evt_drop_off) {
+        return NFL_DROP_THRESHOLD_ERROR;
+    }
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return NFL_STATE_ERROR;
+    }
+
+    /* Assert State */
+    if (nfl->State != NFL_STATE_BUSY) {
+
+        /* Update the state */
+        nfl->State = NFL_STATE_BUSY;
+
+        /* Update the params */
+        nfl->reference_period = reference_period;
+        nfl->min_px_evt_drop_on = min_px_evt_drop_on;
+        nfl->min_px_evt_drop_off = min_px_evt_drop_off;
+        nfl->max_px_evt_drop_on = max_px_evt_drop_on;
+        nfl->max_px_evt_drop_off = max_px_evt_drop_off;
+
+        /* Bypass the filter in order to configure */
+        psee_sensor_write(nfl->csi, NFL_PIPELINE_CONTROL, (0x1UL << NFL_PIPELINE_CONTROL_ENABLE_Pos) |   /*!< Enable the block */
+                                                    (0x1UL << NFL_PIPELINE_CONTROL_BYPASS_Pos) /*!< Bypass the block */
+        );
+
+        /* NFL Configuration */
+        psee_sensor_write(nfl->csi, NFL_REFERENCE_PERIOD, (nfl->reference_period << NFL_REFERENCE_PERIOD_VAL_Pos));   /*!< Override NFL Reference Period */
+
+        psee_sensor_write(nfl->csi, NFL_MIN_VOXEL_THRESHOLD_ON, (nfl->min_px_evt_drop_on << NFL_MIN_VOXEL_THRESHOLD_ON_VAL_Pos)); /*!< Override min_px_evt_drop_on threshold value */
+
+        psee_sensor_write(nfl->csi, NFL_MIN_VOXEL_THRESHOLD_OFF, (nfl->min_px_evt_drop_off << NFL_MIN_VOXEL_THRESHOLD_OFF_VAL_Pos)); /*!< Override min_px_evt_drop_off threshold value */
+
+        psee_sensor_write(nfl->csi, NFL_MAX_VOXEL_THRESHOLD_ON, (nfl->max_px_evt_drop_on << NFL_MAX_VOXEL_THRESHOLD_ON_VAL_Pos)); /*!< Override max_px_evt_drop_on threshold value */
+
+        psee_sensor_write(nfl->csi, NFL_MAX_VOXEL_THRESHOLD_OFF, (nfl->max_px_evt_drop_off << NFL_MAX_VOXEL_THRESHOLD_OFF_VAL_Pos)); /*!< Override max_px_evt_drop_off threshold value */
+
+        /* Enable the filter */
+        psee_sensor_write(nfl->csi, STC_PIPELINE_CONTROL, (0x1UL << NFL_PIPELINE_CONTROL_ENABLE_Pos) | /*!< Enable the filter */
+                                                    (0UL << NFL_PIPELINE_CONTROL_BYPASS)     /*!< Disable the filter bypass */
+        );
+
+        /* Update the state */
+        nfl->State = NFL_STATE_READY;
+
+    } else {
+        return NFL_BUSY;
+    }
+
+    return NFL_OK;
+}
+
+/**
+ * @brief  Function to deactivate NFL block.
+ * @param  nfl Pointer to the NFL handle
+ */
+NFL_StatusTypeDef psee_nfl_deactivate(NFL_HandleTypeDef *nfl) {
+
+    /* Check the NFL handle allocation */
+    if (nfl == NULL) {
+        return NFL_ERROR;
+    }
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return NFL_STATE_ERROR;
+    }
+
+    /* Bypass the filter */
+    psee_sensor_write(nfl->csi, NFL_PIPELINE_CONTROL, (0x1UL << NFL_PIPELINE_CONTROL_ENABLE_Pos) |   /*!< Enable the block */
+                                                (0x1UL << NFL_PIPELINE_CONTROL_BYPASS_Pos) /*!< Bypass the block */
+    );
+
+    /* Update the state */
+    nfl->Init = STC_INIT_NOT_DONE;
+    nfl->State = STC_STATE_RESET;
+    nfl->reference_period = 0;
+    nfl->min_px_evt_drop_on = 0;
+    nfl->min_px_evt_drop_off = 0;
+    nfl->max_px_evt_drop_on = 0;
+    nfl->max_px_evt_drop_off = 0;
+
+    return NFL_OK;
+}
+
+
+/**
+ * @brief  Return the NFL handle state.
+ * @param  nfl Pointer to a NFL_HandleTypeDef structure
+ * @retval NFL state
+ */
+NFL_StateTypeDef psee_nfl_get_state(NFL_HandleTypeDef *nfl) {
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return NFL_STATE_RESET;
+    }
+
+    /* Return NFL handle state */
+    return nfl->State;
+}
+
+
+/**
+ * @brief  Return the NFL handle reference period parameter.
+ * @param  nfl Pointer to a NFL_HandleTypeDef structure
+ * @retval NFL reference period parameter
+ */
+uint16_t psee_nfl_get_reference_period(NFL_HandleTypeDef *nfl) {
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return 0;
+    }
+
+    /* Return NFL handle reference period parameter */
+    return nfl->reference_period;
+}
+
+/**
+ * @brief  Return the NFL handle min_px_evt_drop_on parameter.
+ * @param  nfl Pointer to a NFL_HandleTypeDef structure
+ * @retval NFL min_px_evt_drop_on parameter
+ */
+uint32_t psee_nfl_get_min_px_evt_drop_on(NFL_HandleTypeDef *nfl) {
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return 0;
+    }
+
+    /* Return NFL handle min_px_evt_drop_on parameter */
+    return nfl->min_px_evt_drop_on;
+}
+
+/**
+ * @brief  Return the NFL handle min_px_evt_drop_off parameter.
+ * @param  nfl Pointer to a NFL_HandleTypeDef structure
+ * @retval NFL min_px_evt_drop_off parameter
+ */
+uint32_t psee_nfl_get_min_px_evt_drop_off(NFL_HandleTypeDef *nfl) {
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return 0;
+    }
+
+    /* Return NFL handle min_px_evt_drop_off parameter */
+    return nfl->min_px_evt_drop_off;
+}
+
+/**
+ * @brief  Return the NFL handle max_px_evt_drop_on parameter.
+ * @param  nfl Pointer to a NFL_HandleTypeDef structure
+ * @retval NFL max_px_evt_drop_on parameter
+ */
+uint32_t psee_nfl_get_max_px_evt_drop_on(NFL_HandleTypeDef *nfl) {
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return 0;
+    }
+
+    /* Return NFL handle max_px_evt_drop_on parameter */
+    return nfl->max_px_evt_drop_on;
+}
+
+/**
+ * @brief  Return the NFL handle max_px_evt_drop_off parameter.
+ * @param  nfl Pointer to a NFL_HandleTypeDef structure
+ * @retval NFL max_px_evt_drop_off parameter
+ */
+uint32_t psee_nfl_get_max_px_evt_drop_off(NFL_HandleTypeDef *nfl) {
+
+    /* Assert Block Init */
+    if (nfl->Init != NFL_INIT_DONE) {
+        return 0;
+    }
+
+    /* Return NFL handle max_px_evt_drop_off parameter */
+    return nfl->min_px_evt_drop_off;
+}
+
+/**
+ * @}
+ */

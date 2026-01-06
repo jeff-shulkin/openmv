@@ -83,6 +83,7 @@ typedef struct genx_state {
     const struct issd *issd;
     genx_mode_t mode;
     AFK_HandleTypeDef psee_afk;
+    NFL_HandleTypeDef psee_nfl;
     ec_event_t *events;
 } genx_state_t;
 
@@ -423,6 +424,37 @@ static int ioctl(omv_csi_t *csi, int request, va_list ap) {
                 }
             }
             break;
+        }
+        // Controlling NFL Filter
+        case OMV_CSI_IOCTL_GENX320_SET_NFL: {
+            int mode = va_arg(ap, int);
+
+            if (mode == 0) {
+                // Disable NFL
+                if (psee_nfl_get_state(&genx->psee_nfl) != NFL_STATE_RESET) {
+                    if (psee_nfl_deactivate(&genx->psee_nfl) != NFL_OK) {
+                        ret = -1;
+                    }
+                }
+            } else {
+                // Enable NFL
+                int reference_period = va_arg(ap, int);
+                int min_px_evt_drop_on = va_arg(ap, int);
+                int min_px_evt_drop_off = va_arg(ap, int);
+                int max_px_evt_drop_on = va_arg(ap, int);
+                int max_px_evt_drop_off = va_arg(ap, int);
+                if (psee_nfl_init(csi, &genx->psee_nfl) != NFL_OK) {
+                    ret = -1;
+                }
+                if (psee_nfl_activate(&genx->psee_nfl, 
+                                        reference_period,
+                                        min_px_evt_drop_on,
+                                        min_px_evt_drop_off,
+                                        max_px_evt_drop_on,
+                                        max_px_evt_drop_off) != NFL_OK) {
+                    ret = -1;
+                }
+            }
         }
         case OMV_CSI_IOCTL_GENX320_SET_MODE: {
             int mode = va_arg(ap, int);

@@ -377,6 +377,50 @@ typedef struct
     STC_ParamsTypeDef   Params;     /*!< STC Params */
 } STC_HandleTypeDef;
 
+/**
+ * @brief NFL Init structures definition
+ */
+typedef enum {
+	NFL_INIT_NOT_DONE	= 0x00U,
+    NFL_INIT_DONE 		= 0x01U,
+} NFL_InitTypeDef;
+
+/**
+ * @brief NFL Status structures definition
+ */
+typedef enum {
+    NFL_OK        	           = 0x00U,
+    NFL_BUSY                   = 0x01U,
+	NFL_ERROR		           = 0x02U,
+	NFL_STATE_ERROR		       = 0x03U,
+    NFL_REFERENCE_PERIOD_ERROR = 0x04U,
+    NFL_DROP_THRESHOLD_ERROR   = 0x05U,
+} NFL_StatusTypeDef;
+
+/**
+ * @brief NFL State structures definition
+ */
+typedef enum {
+    NFL_STATE_RESET     = 0x00U,
+    NFL_STATE_READY	    = 0x01U,
+    NFL_STATE_BUSY      = 0x02U,
+} NFL_StateTypeDef;
+
+/**
+ * @brief NFL Handle Structure definition
+ */
+typedef struct
+{
+    omv_csi_t           *csi;
+    NFL_InitTypeDef     Init;                 /*!< NFL block Init */
+    NFL_StateTypeDef    State;                /*!< NFL block State */
+    uint16_t            reference_period;     /*!< NFL block pseudo-window period in us */
+    uint32_t            min_px_evt_drop_on;   /*!< NFL block min pixels to enable minimum pixel_event drop mode */
+    uint32_t            min_px_evt_drop_off;  /*!< NFL block min pixels to disable minimum pixel_event drop mode */
+    uint32_t            max_px_evt_drop_on;   /*!< NFL block max pixels to enable maximum pixel_event drop mode */
+    uint32_t            max_px_evt_drop_off;  /*!< NFL block max pixels to disable maximum pixel_event drop mode */
+} NFL_HandleTypeDef;
+
 /* Constants/Variables to hold default bias */
 extern const BIAS_Params_t genx320es_default_biases;
 extern const BIAS_Params_t genx320mp_default_biases;
@@ -512,5 +556,21 @@ extern STC_ModeTypeDef psee_stc_get_mode(STC_HandleTypeDef *stc);
 extern uint16_t psee_stc_get_params_mult(STC_HandleTypeDef *stc);
 extern uint16_t psee_stc_get_params_presc(STC_HandleTypeDef *stc);
 extern uint16_t psee_stc_get_params_timeout(STC_HandleTypeDef *stc);
+
+/* NFL Configuration Functions */
+extern NFL_StatusTypeDef psee_nfl_init(omv_csi_t *csi, NFL_HandleTypeDef *nfl);
+extern NFL_StatusTypeDef psee_nfl_activate(NFL_HandleTypeDef *nfl,
+                                                uint16_t reference_period,
+                                                uint32_t min_px_evt_drop_on,
+                                                uint32_t min_px_evt_drop_off,
+                                                uint32_t max_px_evt_drop_on,
+                                                uint32_t max_px_evt_drop_off);
+extern NFL_StatusTypeDef psee_nfl_deactivate(NFL_HandleTypeDef *nfl);
+extern NFL_StateTypeDef psee_nfl_get_state(NFL_HandleTypeDef *nfl);
+extern uint16_t psee_nfl_get_reference_period(NFL_HandleTypeDef *nfl);
+extern uint32_t psee_nfl_get_min_px_evt_drop_on(NFL_HandleTypeDef *nfl);
+extern uint32_t psee_nfl_get_min_px_evt_drop_off(NFL_HandleTypeDef *nfl);
+extern uint32_t psee_nfl_get_max_px_evt_drop_on(NFL_HandleTypeDef *nfl);
+extern uint32_t psee_nfl_get_max_px_evt_drop_off(NFL_HandleTypeDef *nfl);
 
 #endif
