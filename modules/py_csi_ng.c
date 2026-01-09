@@ -1245,6 +1245,15 @@ static mp_obj_t py_csi_ioctl(size_t n_args, const mp_obj_t *args) {
             }
             break;
         }
+        case OMV_CSI_IOCTL_GENX320_READ_EVENTS_RAW: {
+            if (n_args == 1 && MP_OBJ_IS_TYPE(args[0], &mp_type_bytearray)) {
+                mp_type_bytearray *array = MP_OBJ_TO_PTR(args[0]);
+
+                if (array->dtype != NDARRAY_UINT16) {
+                    mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Expected a ndarray with dtype uint16"));
+                }
+            }
+        }
         #endif // (OMV_GENX320_ENABLE == 1)
 
         default: {
@@ -1581,6 +1590,7 @@ static const mp_rom_map_elem_t globals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_GENX320_MODE_EVENT),           MP_ROM_INT(OMV_CSI_GENX320_MODE_EVENT) },
     { MP_ROM_QSTR(MP_QSTR_IOCTL_GENX320_READ_EVENTS),    MP_ROM_INT(OMV_CSI_IOCTL_GENX320_READ_EVENTS)},
     { MP_ROM_QSTR(MP_QSTR_IOCTL_GENX320_CALIBRATE),      MP_ROM_INT(OMV_CSI_IOCTL_GENX320_CALIBRATE)},
+    { MP_ROM_QSTR(MP_QSTR_IOCTL_GENX320_READ_EVENTS_RAW),MP_ROM_INT(OMV_CSI_IOCTL_GENX320_READ_EVENTS_RAW)},
     { MP_ROM_QSTR(MP_QSTR_PIX_OFF_EVENT),                MP_ROM_INT(EC_PIX_OFF_EVENT)},
     { MP_ROM_QSTR(MP_QSTR_PIX_ON_EVENT),                 MP_ROM_INT(EC_PIX_ON_EVENT)},
     { MP_ROM_QSTR(MP_QSTR_RST_TRIGGER_RISING),           MP_ROM_INT(EC_RST_TRIGGER_RISING)},

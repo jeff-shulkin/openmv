@@ -484,6 +484,21 @@ static int ioctl(omv_csi_t *csi, int request, va_list ap) {
             ret = omv_csi_snapshot(csi, &image, 0);
             break;
         }
+        case OMV_CSI_IOCTL_GENX320_READ_EVENTS_RAW: {
+            if (omv_csi_get_cropped(csi)) {
+                return OMV_CSI_ERROR_CAPTURE_FAILED;
+            }
+
+            if (csi->transpose) {
+                return OMV_CSI_ERROR_CAPTURE_FAILED;
+            }
+
+            genx->events = (ec_event_t *) va_arg(ap, ec_event_t *);
+
+            image_t image;
+            ret = omv_csi_snapshot(csi, &image, 0);
+            break;
+        }
         case OMV_CSI_IOCTL_GENX320_CALIBRATE: {
             uint32_t event_count = va_arg(ap, uint32_t);
             float sigma = va_arg(ap, double);
